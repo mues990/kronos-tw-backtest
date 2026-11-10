@@ -1,0 +1,40 @@
+{
+ "base": {
+  "dir": "base-35f3823674ae",
+  "model": "NeoQuasar/Kronos-base",
+  "model_rev": "2b554741eca47781b64468546e77fef3e85130e6",
+  "tokenizer": "NeoQuasar/Kronos-Tokenizer-base",
+  "tok_rev": "0e0117387f39004a9016484a186a908917e22426",
+  "lookback": 90,
+  "max_context": 512,
+  "pred_len": 5,
+  "T": 1.0,
+  "top_p": 0.9,
+  "sample_count": 10,
+  "seed": 20261109,
+  "seed_rule": "(seed + crc32('代號|起點YYYY-MM-DD|lookback')) mod 2^31，與原版回測相同",
+  "data_version": "0b003f3239992f5fd8cd419ca7e8f7c2e5bbd7c32f1b910d53bc5e0fb23d0d54",
+  "data_cutoff": "2026-11-09",
+  "kronos_commit": "67b630e67f6a18c9e9be918d9b4337c960db1e9a",
+  "code_version": "c632a1acdcde1d994f3db696805e00e6489758ac7f8f4775fe1296480f0bcead"
+ },
+ "tw": {
+  "dir": "tw-b2a614d854c9",
+  "model": "talant28/Kronos-TW-Predictor",
+  "model_rev": "6e66d3c16b253f292d9bb7da26a5d8060d94c5f8",
+  "tokenizer": "talant28/Kronos-TW-Tokenizer",
+  "tok_rev": "a5ae468e63586ba894ba27b602107a0d41429036",
+  "lookback": 90,
+  "max_context": 512,
+  "pred_len": 5,
+  "T": 1.0,
+  "top_p": 0.9,
+  "sample_count": 10,
+  "seed": 20261109,
+  "seed_rule": "(seed + crc32('代號|起點YYYY-MM-DD|lookback')) mod 2^31，與原版回測相同",
+  "data_version": "0b003f3239992f5fd8cd419ca7e8f7c2e5bbd7c32f1b910d53bc5e0fb23d0d54",
+  "data_cutoff": "2026-11-09",
+  "kronos_commit": "67b630e67f6a18c9e9be918d9b4337c960db1e9a",
+  "code_version": "c632a1acdcde1d994f3db696805e00e6489758ac7f8f4775fe1296480f0bcead"
+ }
+}

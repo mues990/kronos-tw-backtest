@@ -1,0 +1,29 @@
+{
+ "ticker": "2002",
+ "model": "talant28/Kronos-TW-Predictor",
+ "model_rev": "6e66d3c16b253f292d9bb7da26a5d8060d94c5f8",
+ "tokenizer": "talant28/Kronos-TW-Tokenizer",
+ "tok_rev": "a5ae468e63586ba894ba27b602107a0d41429036",
+ "load_secs": 5.3,
+ "model_training": false,
+ "tokenizer_training": false,
+ "device": "cpu",
+ "dtypes": [
+  "torch.float32"
+ ],
+ "n_params_model": 102310592,
+ "n_params_tokenizer": 3958042,
+ "torch": "2.5.1+cpu",
+ "numpy": "2.4.6",
+ "pandas": "2.2.2",
+ "python": "3.11.18",
+ "threads": 4,
+ "cpu_count": 4,
+ "cpu": "x86_64",
+ "kronos_commit": "67b630e67f6a18c9e9be918d9b4337c960db1e9a",
+ "code_rev": "e256f1cc938cecd5c7d8560f6428086da3a27127",
+ "started": "2026-11-10T09:27:50.178906+08:00",
+ "new_rows": 40,
+ "infer_secs": 212.0,
+ "finished": "2026-11-10T09:31:22.193692+08:00"
+}

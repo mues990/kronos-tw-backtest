@@ -1,0 +1,6 @@
+[
+ ".gitattributes",
+ "README.md",
+ "config.json",
+ "model.safetensors"
+]
