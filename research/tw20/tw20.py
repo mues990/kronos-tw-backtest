@@ -38,27 +38,61 @@ STATUS = ["ok", "immature", "no_entry_price", "no_exit_price", "label_event_unre
 
 
 # ---------- 變更面額事件 ----------
+PARAM_STYLES = {  # 日期參數寫法候選；以「查 2025 年能回傳 2025 年恢復買賣的列」判定哪一種有效
+    "strDate_endDate": lambda a, b: {"strDate": a, "endDate": b},
+    "startDate_endDate": lambda a, b: {"startDate": a, "endDate": b},
+    "date": lambda a, b: {"date": a},
+    "year": lambda a, b: {"year": a[:4]},
+}
+
+
+def _twtb7u(params):
+    url = BASE + "change/TWTB7U?" + urllib.parse.urlencode({**params, "response": "json"})
+    raw_bytes, js = market.get(url)
+    t = tables(js)
+    days = [roc(x) for x in t[0][pick(t[0], "恢復買賣日期")]] if t else []
+    return url, raw_bytes, js, t, days
+
+
 def fetch_par_change(out):
-    """TWTB7U：上市公司變更股票面額。每年一次請求；原始 JSON 存檔、印出欄位供核對。"""
+    """TWTB7U：上市公司變更股票面額。先試出有效的日期參數，再每年抓一次；原始 JSON 存檔。"""
     raw = Path(out) / "raw"
     raw.mkdir(parents=True, exist_ok=True)
-    log = []
-    for y in YEARS:
-        end = min(pd.Timestamp(y, 12, 31), CUTOFF)
-        url = BASE + "change/TWTB7U?" + urllib.parse.urlencode({"startDate": f"{y}0101", "endDate": f"{end:%Y%m%d}", "response": "json"})
+    log, style = [], None
+    for name, mk in PARAM_STYLES.items():
         try:
-            raw_bytes, js = market.get(url)
+            url, _, js, t, days = _twtb7u(mk("20250101", "20251231"))
         except RuntimeError as e:
-            log.append({"year": y, "url": url, "error": str(e)})
+            log.append({"probe": name, "error": str(e)})
+            continue
+        okay = bool(days) and all(d.year == 2025 for d in days)
+        log.append({"probe": name, "url": url, "stat": js.get("stat"), "rows": len(days), "years": sorted({d.year for d in days}), "valid": okay})
+        print(json.dumps(log[-1], ensure_ascii=False), flush=True)
+        if okay:
+            style = name
+            break
+    if style is None:
+        print("::warning::TWTB7U 找不到有效的日期參數，只保存無參數回應", flush=True)
+    for y in YEARS if style else []:
+        end = min(pd.Timestamp(y, 12, 31), CUTOFF)
+        try:
+            url, raw_bytes, js, t, days = _twtb7u(PARAM_STYLES[style](f"{y}0101", f"{end:%Y%m%d}"))
+        except RuntimeError as e:
+            log.append({"year": y, "error": str(e)})
             continue
         (raw / f"TWTB7U_{y}.json").write_bytes(raw_bytes)
-        t = tables(js)
-        log.append({"year": y, "url": url, "stat": js.get("stat"), "rows": sum(len(x) for x in t),
-                    "fields": list(t[0].columns) if t else [], "sha256": hashlib.sha256(raw_bytes).hexdigest()})
+        log.append({"year": y, "url": url, "stat": js.get("stat"), "rows": len(days),
+                    "out_of_year": int(sum(d.year != y for d in days)), "sha256": hashlib.sha256(raw_bytes).hexdigest()})
         print(json.dumps(log[-1], ensure_ascii=False), flush=True)
         if t:
-            print(t[0].head(3).to_string(), flush=True)
-    (raw / "TWTB7U_fetch_log.json").write_text(json.dumps(log, ensure_ascii=False, indent=1), encoding="utf-8")
+            print(t[0].iloc[:, :7].to_string(), flush=True)
+    if style is None:
+        url, raw_bytes, js, t, days = _twtb7u({})
+        (raw / "TWTB7U_noparam.json").write_bytes(raw_bytes)
+        log.append({"noparam": url, "rows": len(days), "sha256": hashlib.sha256(raw_bytes).hexdigest()})
+        if t:
+            print(t[0].iloc[:, :7].to_string(), flush=True)
+    (raw / "TWTB7U_fetch_log.json").write_text(json.dumps({"param_style": style, "log": log}, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
 def par_change_events(out):
@@ -82,9 +116,9 @@ def par_change_events(out):
             rows.append(pd.DataFrame({"code": code, "ex_date": day, "factor": fac.values}))
     if not rows:
         return pd.Series(dtype=float, index=pd.MultiIndex.from_arrays([[], []], names=["code", "ex_date"])), []
-    ev = pd.concat(rows)
+    ev = pd.concat(rows).drop_duplicates(["code", "ex_date"])   # 同一事件可能出現在多個查詢回應，只算一次
     ev = ev[np.isfinite(ev.factor) & (ev.factor > 0)]
-    return ev.groupby(["code", "ex_date"]).factor.prod(), sorted(method)
+    return ev.set_index(["code", "ex_date"]).factor, sorted(method)
 
 
 # ---------- 面板與標籤 ----------
