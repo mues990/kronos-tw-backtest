@@ -1,0 +1,70 @@
+name: tw20-data
+
+# 台股 20 日達標分類（tw20）第 1 段：資料接入與小規模 smoke test。
+# 只能手動執行；不寫回 repo，結果只存 artifacts（保留 30 天）。不訓練模型。
+on:
+  workflow_dispatch:
+    inputs:
+      codes:
+        description: 'smoke test 計算 Alpha158 的上市普通股代號（4 碼、逗號分隔、最多 20 檔）'
+        default: '2330,2317,2454,2603,2327,1101,2881,2308,2382,2492,1476,3413'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tw20-data-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  MLFLOW_DISABLE_AGENT_HINT: "1"
+  TWSE_OFFLINE: "1"   # 日 K 與除權息／減資只用 repo 內已存資料；只有變更面額（TWTB7U）會連線抓取
+  OUT: tw20_out
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: 輸入檢查
+        env:
+          CODES: ${{ inputs.codes }}
+        run: |
+          echo "$CODES" | grep -Eq '^[1-8][0-9]{3}(,[1-8][0-9]{3}){0,19}$' || { echo "::error::codes 必須是 1–20 個上市普通股 4 碼代號，以逗號分隔"; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: research/tw20/requirements.lock
+      - name: 安裝鎖定依賴
+        run: |
+          pip install -r research/tw20/requirements.lock
+          mkdir -p "$OUT" && pip freeze > "$OUT/pip-freeze.txt" && python --version > "$OUT/python-version.txt"
+      - name: 離線單元檢查
+        run: python research/tw20/test_tw20.py
+      - name: 變更面額事件（證交所 TWTB7U）
+        env:
+          TWSE_OFFLINE: ""
+        run: python research/tw20/tw20.py events "$OUT"
+      - name: 標籤與樣本狀態（全股票池）
+        run: python research/tw20/tw20.py labels "$OUT"
+      - name: Alpha158（smoke：指定代號）
+        env:
+          CODES: ${{ inputs.codes }}
+        run: python research/tw20/tw20.py features "$OUT" --codes "$CODES"
+      - name: 資料檢查與抽查
+        run: |
+          python research/tw20/tw20.py checks "$OUT" > /dev/null
+          cat "$OUT/checks.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: 雜湊
+        run: |
+          python research/tw20/tw20.py hashes "$OUT"
+          echo "commit=$GITHUB_SHA run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$OUT/run.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tw20-stage1-smoke
+          path: ${{ env.OUT }}
+          retention-days: 30
