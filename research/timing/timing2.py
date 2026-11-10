@@ -280,7 +280,7 @@ def daily(out, positions=None):
             return "US"
     pos = pd.read_csv(positions, dtype={"code": str}) if positions else pd.DataFrame(columns=["code", "entry_date", "entry_price"])
     twb = bench["TW"].dropna()
-    upool = [x for x in (HERE / "rs_universe.txt").read_text().split() if x.isdigit()]
+    upool = [x.strip() for x in (HERE / "rs_universe.txt").read_text().splitlines() if x.strip() and not x.startswith("#")]
     uc = yf.download([f"{c}.TW" for c in upool], start=f"{twb.index[-1].year - 2}-01-01", auto_adjust=True, progress=False)["Close"]
     rs_pool = np.array([rs_last(uc[k].dropna(), twb) if k in uc else np.nan for k in uc.columns])
     rows, prow = [], []
