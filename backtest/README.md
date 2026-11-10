@@ -7,7 +7,7 @@
 
 | 方式 | 指令 |
 |---|---|
-| Actions（建議） | 改 `config.json` 的 `"mode"`（`pilot` 或 `full`）後推到 main；或在 Actions → kronos-backtest → Run workflow |
+| Actions（建議） | Actions → kronos-backtest → Run workflow（選 `pilot` 或 `full`） |
 | 本機 | `python backtest/twse.py prep` → `PYTHONPATH=<Kronos repo> python backtest/infer.py 2330`（每檔各跑一次）→ `python backtest/score.py` |
 | 自我檢查 | `python backtest/test_backtest.py`（離線、不需模型） |
 

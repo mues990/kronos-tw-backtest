@@ -1,6 +1,6 @@
 name: kronos-backtest
 
-# 重跑方式：(1) 改 backtest/config.json 的 mode 後推到 main；或 (2) 在 Actions 頁面按 Run workflow
+# 重跑方式：在 Actions 頁面按 Run workflow（只接受手動觸發；改 config.json 不會自動開跑）
 on:
   workflow_dispatch:
     inputs:
@@ -8,9 +8,6 @@ on:
         type: choice
         options: [pilot, full]
         default: pilot
-  push:
-    branches: [main]
-    paths: [backtest/config.json]
 
 permissions:
   contents: write
