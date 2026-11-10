@@ -27,6 +27,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
+      - name: 分支檢查（只允許 research/tw20）
+        if: github.ref != 'refs/heads/research/tw20'
+        run: |
+          echo "::error::此 workflow 只能在 research/tw20 分支執行（main 上只保留定義，供手動觸發登錄）"
+          exit 1
       - name: 輸入檢查
         env:
           CODES: ${{ inputs.codes }}
