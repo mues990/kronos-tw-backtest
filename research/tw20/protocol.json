@@ -1,0 +1,90 @@
+{
+  "name": "tw20 第 2 段：A／B 模型與驗證期評估",
+  "registered": "2026-11-10（訓練與查看驗證績效之前提交；提交後不得因結果更改門檻、股票池、特徵或目標）",
+  "target": {
+    "definition": "t 日收盤後訊號；t+1 開盤為基準；t+20 收盤評分；R20 ≥ +10% → UP，≤ −10% → DOWN，其餘 OTHER",
+    "class_map": {"DOWN": 0, "OTHER": 1, "UP": 2},
+    "goal_hit_rate": 0.70,
+    "note": "DOWN 只代表看空／避跌訊號，不宣稱可實現放空收益；達標率不是交易報酬"
+  },
+  "samples": {
+    "source": "research/tw20/tw20.py 的 labels（每日動態股票池）",
+    "scorable": "status == ok",
+    "excluded_by_rule_known_at_signal": "feature_event_unreliable（t−60..t 內有無法還原的跳空）：訓練與評分皆排除，屬事前可知的規則",
+    "excluded_data_quality": "label_event_unreliable、no_entry_price、no_exit_price、immature：不評分，只報數量",
+    "limit_lock": "t+1 一字漲停（UP）／一字跌停（DOWN）的樣本：主要結果照常計入（訊號當下不可知）；另報『排除該方向鎖死樣本』的版本，僅供參考，不用於通過判定",
+    "feature_missing": "Alpha158 與 B 特徵的 ±inf 一律改為缺值；缺值交給 LightGBM 原生處理；不做任何需要擬合的補值或標準化"
+  },
+  "models": {
+    "A": "官方 Alpha158（qlib.contrib.data.loader.Alpha158DL 預設 158 個因子）＋ 一個 LightGBM 三分類模型",
+    "B": "與 A 相同的 Alpha158、模型與訓練設定，另加下列 8 個特徵",
+    "B_features": {
+      "MKT_RET20": "加權指數收盤[t] / 收盤[t−20] − 1",
+      "MKT_RET60": "加權指數收盤[t] / 收盤[t−60] − 1",
+      "MKT_MA60_GAP": "加權指數收盤[t] / 最近 60 個交易日（含 t）收盤平均 − 1",
+      "MKT_VOL20": "加權指數最近 20 個日報酬（含 t）的標準差，ddof=1",
+      "REL_RET20": "個股還原收盤 20 日報酬 − MKT_RET20",
+      "REL_RET60": "個股還原收盤 60 日報酬 − MKT_RET60",
+      "BREADTH_MA60": "t 日股票池中，還原收盤 > 自身 60 日均線（含 t，需滿 60 個值）的檔數 ÷ 股票池中均線可算的檔數",
+      "BREADTH_UP": "t 日股票池中，還原日報酬 > 0 的檔數 ÷ 股票池中日報酬可算的檔數"
+    },
+    "B_feature_rules": "個股還原收盤 = 還原日報酬累乘，停牌日沿用前值；n 日報酬需 t−n 日已有還原收盤，否則缺值；股票池 = 當日全部入池個股（不論樣本狀態，入池在 t 日已知）；加權指數取證交所 MI_INDEX 發行量加權股價指數收盤（backtest/market/manifest_YYYY.csv）",
+    "excluded": "Kronos、法人、融資券、新聞、產業分類；不做網格搜尋或自動因子挖掘"
+  },
+  "split": {
+    "fit": "訊號日 ≥ 2015-01-01 且 label_end_date ≤ 2020-12-31",
+    "early_stop": "訊號日 ≥ 2021-01-01 且 label_end_date ≤ 2022-12-31（只用於決定迭代數）",
+    "refit": "label_end_date ≤ 2022-12-31，以 early stopping 得到的 best_iteration 為固定迭代數重訓",
+    "validation": "訊號日 ≥ 2023-01-01 且 label_end_date ≤ 2024-12-31（評估與選門檻）",
+    "holdout": "訊號日 ≥ 2025-01-01：本段不載入、不預測、不評分",
+    "purge": "所有邊界依 label_end_date：前一段樣本的結果不得延伸進下一段"
+  },
+  "lightgbm": {
+    "objective": "multiclass", "num_class": 3, "metric": "multi_logloss",
+    "learning_rate": 0.03, "num_leaves": 15, "max_depth": 4, "min_child_samples": 500, "reg_lambda": 10,
+    "n_estimators_max": 1000, "early_stopping_rounds": 50,
+    "seed": 42, "num_threads": 4, "deterministic": true, "force_row_wise": true, "verbose": -1,
+    "not_used": "class weighting、SMOTE、標籤排名、標籤標準化、子抽樣（其餘參數用 LightGBM 預設）",
+    "note": "實驗設定，不宣稱最佳參數"
+  },
+  "signals": {
+    "directions": ["UP", "DOWN"],
+    "score": "模型對該方向的類別機率（未校準，不代表勝率）",
+    "candidate_percentiles": [90, 95, 99],
+    "threshold": "該模型、該方向分數在全部可評分驗證樣本上的第 p 百分位（numpy.quantile，線性內插）",
+    "rule": "該方向分數 ≥ 門檻 且 > 另一方向分數 才發訊號；兩方向分數相等則棄權",
+    "coverage": "訊號數 ÷ 可評分驗證樣本數",
+    "cooldown": "無；每日重疊訊號全部計入，不宣稱為獨立交易"
+  },
+  "baseline": {
+    "definition": "同訊號日 × 同訊號前波動組的全部可評分樣本在該方向的達標率",
+    "vol": "vol20 = 訊號前 20 個還原日報酬（含 t）的標準差 × √20，ddof=1",
+    "groups": "三組；切點 = refit 樣本（label_end_date ≤ 2022-12-31）vol20 的 1/3 與 2/3 分位數，固定後套用到驗證期",
+    "lift": "訊號樣本的（是否達標 − 基準）平均"
+  },
+  "bootstrap": {
+    "method": "以驗證期交易日為單位的 moving-block bootstrap；被抽到的日期保留當日全部樣本；所有候選共用同一組抽樣日期",
+    "block_days": 40, "n": 2000, "seed": 42, "ci": "百分位法 95%",
+    "sensitivity_block_days": [20, 60]
+  },
+  "pass_rule": {
+    "min_signals": 200,
+    "min_distinct_dates": 60,
+    "yearly": "2023 與 2024（依訊號日）對匹配基準的提升點估計皆 > 0",
+    "main": "區塊 40 日的提升 95% 區間下限 > 0",
+    "sensitivity": "區塊 20 日與 60 日的提升 95% 區間下限也都 > 0，才算沒有推翻正向證據",
+    "note": "數量門檻只是本輪研究要求，不代表統計上必然足夠"
+  },
+  "selection": {
+    "within_model": "每個模型、每個方向：在通過 pass_rule 的候選中取驗證達標率最高者；同分取覆蓋率較高者",
+    "between_models": "每個方向：A、B 各自入選者再依同一規則取一個為主要模型；沒有合格者記錄未通過，不降低標準"
+  },
+  "holdout_gate": {
+    "rule": "只有當至少一個方向的主要候選通過 pass_rule 且其驗證達標率 > 50% 時，才進入第 3 段的保留期評估（屆時所有通過的方向依附件規格各評估一次）",
+    "otherwise": "不開啟保留期模型績效；結案並提出以新日期做前瞻檢驗的規格",
+    "origin": "2026-11-10 使用者同意的追加條件；比附件第 3 段更嚴格"
+  },
+  "placebo": "另以『同一訊號日內隨機打亂類別』（seed 42）的假標籤跑完全相同的流程，當作負向對照；預期提升 ≈ 0。不影響任何判定",
+  "compute": "GitHub Actions 標準 ubuntu-24.04 CPU runner；workflow_dispatch；結果存 artifacts，不寫回 repo",
+  "reporting": "每個候選：訊號數、不同日期數、覆蓋率、達標率、反向達標率、基準、提升與區間（40／20／60）、2023／2024 分年、是否通過；70% 為目標，低於即標示未達標"
+}
