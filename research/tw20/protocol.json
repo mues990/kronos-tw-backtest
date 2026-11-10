@@ -3,8 +3,12 @@
   "registered": "2026-11-10（訓練與查看驗證績效之前提交；提交後不得因結果更改門檻、股票池、特徵或目標）",
   "target": {
     "definition": "t 日收盤後訊號；t+1 開盤為基準；t+20 收盤評分；R20 ≥ +10% → UP，≤ −10% → DOWN，其餘 OTHER",
-    "class_map": {"DOWN": 0, "OTHER": 1, "UP": 2},
-    "goal_hit_rate": 0.70,
+    "class_map": {
+      "DOWN": 0,
+      "OTHER": 1,
+      "UP": 2
+    },
+    "goal_hit_rate": 0.7,
     "note": "DOWN 只代表看空／避跌訊號，不宣稱可實現放空收益；達標率不是交易報酬"
   },
   "samples": {
@@ -28,7 +32,7 @@
       "BREADTH_MA60": "t 日股票池中，還原收盤 > 自身 60 日均線（含 t，需滿 60 個值）的檔數 ÷ 股票池中均線可算的檔數",
       "BREADTH_UP": "t 日股票池中，還原日報酬 > 0 的檔數 ÷ 股票池中日報酬可算的檔數"
     },
-    "B_feature_rules": "個股還原收盤 = 還原日報酬累乘，停牌日沿用前值；n 日報酬需 t−n 日已有還原收盤，否則缺值；股票池 = 當日全部入池個股（不論樣本狀態，入池在 t 日已知）；加權指數取證交所 MI_INDEX 發行量加權股價指數收盤（backtest/market/manifest_YYYY.csv）",
+    "B_feature_rules": "個股還原收盤 = 還原日報酬累乘，停牌日沿用前值；n 日報酬需 t−n 日已有還原收盤，否則缺值；股票池 = 當日全部入池個股（不論樣本狀態，入池在 t 日已知）；加權指數取證交所 FMTQIK 發行量加權股價指數收盤（見 amendments）",
     "excluded": "Kronos、法人、融資券、新聞、產業分類；不做網格搜尋或自動因子挖掘"
   },
   "split": {
@@ -40,17 +44,35 @@
     "purge": "所有邊界依 label_end_date：前一段樣本的結果不得延伸進下一段"
   },
   "lightgbm": {
-    "objective": "multiclass", "num_class": 3, "metric": "multi_logloss",
-    "learning_rate": 0.03, "num_leaves": 15, "max_depth": 4, "min_child_samples": 500, "reg_lambda": 10,
-    "n_estimators_max": 1000, "early_stopping_rounds": 50,
-    "seed": 42, "num_threads": 4, "deterministic": true, "force_row_wise": true, "verbose": -1,
+    "objective": "multiclass",
+    "num_class": 3,
+    "metric": "multi_logloss",
+    "learning_rate": 0.03,
+    "num_leaves": 15,
+    "max_depth": 4,
+    "min_child_samples": 500,
+    "reg_lambda": 10,
+    "n_estimators_max": 1000,
+    "early_stopping_rounds": 50,
+    "seed": 42,
+    "num_threads": 4,
+    "deterministic": true,
+    "force_row_wise": true,
+    "verbose": -1,
     "not_used": "class weighting、SMOTE、標籤排名、標籤標準化、子抽樣（其餘參數用 LightGBM 預設）",
     "note": "實驗設定，不宣稱最佳參數"
   },
   "signals": {
-    "directions": ["UP", "DOWN"],
+    "directions": [
+      "UP",
+      "DOWN"
+    ],
     "score": "模型對該方向的類別機率（未校準，不代表勝率）",
-    "candidate_percentiles": [90, 95, 99],
+    "candidate_percentiles": [
+      90,
+      95,
+      99
+    ],
     "threshold": "該模型、該方向分數在全部可評分驗證樣本上的第 p 百分位（numpy.quantile，線性內插）",
     "rule": "該方向分數 ≥ 門檻 且 > 另一方向分數 才發訊號；兩方向分數相等則棄權",
     "coverage": "訊號數 ÷ 可評分驗證樣本數",
@@ -64,8 +86,14 @@
   },
   "bootstrap": {
     "method": "以驗證期交易日為單位的 moving-block bootstrap；被抽到的日期保留當日全部樣本；所有候選共用同一組抽樣日期",
-    "block_days": 40, "n": 2000, "seed": 42, "ci": "百分位法 95%",
-    "sensitivity_block_days": [20, 60]
+    "block_days": 40,
+    "n": 2000,
+    "seed": 42,
+    "ci": "百分位法 95%",
+    "sensitivity_block_days": [
+      20,
+      60
+    ]
   },
   "pass_rule": {
     "min_signals": 200,
@@ -86,5 +114,17 @@
   },
   "placebo": "另以『同一訊號日內隨機打亂類別』（seed 42）的假標籤跑完全相同的流程，當作負向對照；預期提升 ≈ 0。不影響任何判定",
   "compute": "GitHub Actions 標準 ubuntu-24.04 CPU runner；workflow_dispatch；結果存 artifacts，不寫回 repo",
-  "reporting": "每個候選：訊號數、不同日期數、覆蓋率、達標率、反向達標率、基準、提升與區間（40／20／60）、2023／2024 分年、是否通過；70% 為目標，低於即標示未達標"
+  "reporting": "每個候選：訊號數、不同日期數、覆蓋率、達標率、反向達標率、基準、提升與區間（40／20／60）、2023／2024 分年、是否通過；70% 為目標，低於即標示未達標",
+  "amendments": [
+    {
+      "when": "2026-11-10，訓練與查看任何驗證績效之前",
+      "what": "加權指數來源由 MI_INDEX（manifest）改為證交所 FMTQIK（backtest/raw/calendar/）",
+      "why": "MI_INDEX 解析結果缺 2019-04-29 一日的指數；FMTQIK 同為證交所官方資料且 repo 已存，其餘日期兩者交叉核對一致。不以股票池平均替代"
+    },
+    {
+      "when": "2026-11-10，訓練與查看任何驗證績效之前（以打亂標籤的 placebo 檢查流程時發現）",
+      "what": "vol20 缺值的樣本（最近 20 個日報酬不足 18 個，多為長期停牌後；全期可評分樣本 541 筆，約 0.13%）自成第四個波動組『缺』，基準在同訊號日 × 該組內計算",
+      "why": "原規格只定義三分位，缺值樣本沒有組別會讓基準變成缺值"
+    }
+  ]
 }

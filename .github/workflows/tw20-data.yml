@@ -5,6 +5,11 @@ name: tw20-data
 on:
   workflow_dispatch:
     inputs:
+      stage:
+        description: 'smoke＝第 1 段小規模檢查；stage2＝A／B 模型與驗證期評估（不評分 2025 以後）'
+        type: choice
+        options: [smoke, stage2]
+        default: smoke
       codes:
         description: 'smoke test 計算 Alpha158 的上市普通股代號（4 碼、逗號分隔、最多 20 檔）'
         default: '2330,2317,2454,2603,2327,1101,2881,2308,2382,2492,1476,3413'
@@ -24,6 +29,7 @@ env:
 
 jobs:
   smoke:
+    if: inputs.stage == 'smoke'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -73,3 +79,57 @@ jobs:
           name: tw20-stage1-smoke
           path: ${{ env.OUT }}
           retention-days: 30
+
+  stage2:
+    if: inputs.stage == 'stage2'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: 分支檢查（只允許 research/tw20）
+        if: github.ref != 'refs/heads/research/tw20'
+        run: |
+          echo "::error::此 workflow 只能在 research/tw20 分支執行"
+          exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: research/tw20/requirements.lock
+      - name: 安裝鎖定依賴
+        run: |
+          pip install -r research/tw20/requirements.lock
+          mkdir -p "$OUT" && pip freeze > "$OUT/pip-freeze.txt" && python --version > "$OUT/python-version.txt"
+          nproc > "$OUT/nproc.txt" && cat "$OUT/nproc.txt"
+      - name: 離線單元檢查
+        run: python research/tw20/test_tw20.py && python research/tw20/test_stage2.py
+      - name: 變更面額事件（證交所 TWTB7U）
+        env:
+          TWSE_OFFLINE: ""
+        run: python research/tw20/tw20.py events "$OUT"
+      - name: 標籤與樣本狀態
+        run: python research/tw20/tw20.py labels "$OUT"
+      - name: Alpha158（全部曾入池個股）
+        run: python research/tw20/tw20.py features "$OUT" 2>&1 | tail -3
+      - name: B 特徵
+        run: python research/tw20/stage2.py bfeat "$OUT"
+      - name: 資料檢查
+        run: python research/tw20/tw20.py checks "$OUT" > /dev/null
+      - name: 負向對照（標籤打亂）
+        run: python research/tw20/stage2.py run "$OUT" --placebo > "$OUT/placebo.log" 2>&1; sed -n '/^# tw20/,/^## 重要特徵/p' "$OUT/placebo.log"
+      - name: A／B 訓練與驗證期評估
+        run: |
+          python research/tw20/stage2.py run "$OUT"
+          cat "$OUT/stage2/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: 雜湊與交接檔
+        run: |
+          python research/tw20/tw20.py hashes "$OUT"
+          cp research/tw20/HANDOFF.md research/tw20/protocol.json "$OUT/"
+          rm -rf "$OUT/qlib_data"
+          echo "commit=$GITHUB_SHA run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$OUT/run.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tw20-stage2
+          path: ${{ env.OUT }}
+          retention-days: 90

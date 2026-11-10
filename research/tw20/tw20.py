@@ -122,6 +122,18 @@ def par_change_events(out):
 
 
 # ---------- 面板與標籤 ----------
+def taiex_series():
+    """發行量加權股價指數收盤：證交所 FMTQIK（每日市場成交資訊，repo 內 backtest/raw/calendar/）。
+    MI_INDEX（manifest）缺 2019-04-29 一日，故以 FMTQIK 為準；兩者其餘日期在 checks 交叉核對。"""
+    rows = []
+    for f in sorted((twse.RAW / "calendar").glob("FMTQIK_*.json")):
+        for t in tables(json.loads(f.read_text(encoding="utf-8"))):
+            rows.append(pd.Series(num(t[pick(t, "發行量加權股價指數")]).to_numpy(), index=[roc(x) for x in t[pick(t, "日期")]]))
+    tx = pd.concat(rows)
+    return tx[~tx.index.duplicated()].sort_index().rename("taiex_close")
+
+
+
 def panel(out):
     files = [market.OUT / f"daily_{y}.csv.gz" for y in YEARS]
     d = pd.concat(pd.read_csv(f, dtype={"code": str}, parse_dates=["date"]) for f in files)
@@ -136,7 +148,7 @@ def panel(out):
     e = e[e.code.isin(cols) & e.ex_date.isin(cal)]
     f[cal.get_indexer(e.ex_date), cols.get_indexer(e.code)] = e.factor.values
     F = pd.DataFrame(f, index=cal, columns=cols)
-    taiex = pd.concat(pd.read_csv(market.OUT / f"manifest_{y}.csv", parse_dates=["date"]) for y in YEARS).set_index("date").taiex_close
+    taiex = taiex_series()
     return cal, P, F, {"ex_right_reduction": int(len(ev0)), "par_change": int(len(ev1)), "par_change_method": method,
                        "par_change_codes": sorted(ev1.index.get_level_values(0).unique().tolist()) if len(ev1) else []}, taiex.reindex(cal)
 
@@ -279,7 +291,9 @@ def checks(out):
     man = pd.concat(pd.read_csv(market.OUT / f"manifest_{y}.csv", parse_dates=["date"]) for y in YEARS)
     R["資料涵蓋"] = {"交易日": len(cal), "起": f"{cal[0]:%Y-%m-%d}", "迄": f"{cal[-1]:%Y-%m-%d}", "截止日": f"{CUTOFF:%Y-%m-%d}",
                  "無資料日": int((man.n_stocks == 0).sum()), "每日檔數範圍": [int(man.n_stocks.min()), int(man.n_stocks.max())],
-                 "加權指數缺值日": int(taiex.isna().sum())}
+                 "加權指數缺值日（FMTQIK）": int(taiex.isna().sum()),
+                 "MI_INDEX 指數缺值日": [f"{d:%Y-%m-%d}" for d in man.set_index("date").taiex_close.reindex(cal).pipe(lambda x: x[x.isna()]).index],
+                 "FMTQIK 對 MI_INDEX 最大差（點）": float((taiex - man.set_index("date").taiex_close.reindex(cal)).abs().max())}
     # 單位：VWAP（金額÷股數）須落在當日最低～最高價之間
     v, a = P["volume"], P["amount"]
     vw = a / v.where(v > 0)
@@ -370,7 +384,7 @@ def checks(out):
 
 def hashes(out):
     out = Path(out)
-    files = sorted([*market.OUT.glob("daily_[0-9]*.csv.gz"), *market.OUT.glob("manifest_[0-9]*.csv"),
+    files = sorted([*market.OUT.glob("daily_[0-9]*.csv.gz"), *market.OUT.glob("manifest_[0-9]*.csv"), *(twse.RAW / "calendar").glob("FMTQIK_*.json"),
                     *(twse.RAW / "events").glob("*.json"), ROOT / "backtest" / "splits.csv",
                     *(out / "raw").glob("TWTB7U_*.json"), *[out / x for x in ("labels.parquet", "features.parquet", "jumps.csv")]])
     h = {str(f.relative_to(ROOT) if f.is_relative_to(ROOT) else f.relative_to(out)): hashlib.sha256(f.read_bytes()).hexdigest()
