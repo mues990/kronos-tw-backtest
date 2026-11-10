@@ -1,0 +1,2 @@
+date,url,fetched_at,stat,n_stocks,taiex_close,sha256
+2015-01-05,https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=20150105&type=ALLBUT0999&response=json,2026-11-10T09:56:58+08:00,OK,814,9274.11,2e48fd73b79835a715699cf9ccbcca8dd53412684206863d9bb6fb0f4c977f04
