@@ -1,0 +1,23 @@
+{
+  "note": "事前登錄（2026-11-10，看結果前寫定）。只用純 K 線與成交量：Qlib Alpha158 的 158 個因子（還原價、還原量）。勝負定義、股票池、基準、冷卻期、月份群集與第 1 批相同。",
+  "features": "qlib.contrib.data.loader.Alpha158DL 預設 158 個欄位，不加其他欄位",
+  "price_adjustment": "還原收盤 = 還原日報酬累乘；開高低與 vwap 乘同一調整係數；量除以調整係數",
+  "targets": ["long", "short"],
+  "split": {
+    "train": ["2015-01-01", "2020-12-31"],
+    "purge_days": 20,
+    "early_stop": ["2021-01-01", "2022-12-31"],
+    "validation": ["2023-01-01", "2024-12-31"],
+    "holdout": ["2025-01-01", "2026-12-31"]
+  },
+  "retrain_before_holdout": false,
+  "lightgbm": {"objective": "binary", "metric": "auc", "learning_rate": 0.05, "num_leaves": 63, "min_data_in_leaf": 200,
+               "feature_fraction": 0.8, "bagging_fraction": 0.8, "bagging_freq": 1, "lambda_l2": 1.0, "seed": 0,
+               "num_threads": 2, "verbose": -1, "num_boost_round": 2000, "early_stopping_rounds": 100},
+  "selection": {
+    "top_pct": [10, 5, 1],
+    "threshold_source": "early_stop 期間預測機率的分位數（固定後套用到驗證、保留期）",
+    "cooldown_days": 20
+  },
+  "pass": {"驗證": {"lift_ci_low_gt": 0}, "保留": "只對通過驗證的選股門檻計算"}
+}

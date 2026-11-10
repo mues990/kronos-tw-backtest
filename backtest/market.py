@@ -139,7 +139,7 @@ def panel():
     years = sorted(d.date.dt.year.unique())
     cal = pd.DatetimeIndex(sorted(d.date.unique()))
     ev = load_events(years)
-    P = {c: d.pivot(index="date", columns="code", values=c).reindex(cal) for c in ("open", "close", "amount")}
+    P = {c: d.pivot(index="date", columns="code", values=c).reindex(cal) for c in ("open", "high", "low", "close", "volume", "amount")}
     cols = P["close"].columns
     f = np.ones((len(cal), len(cols)))  # 每日每檔的還原 factor（非事件日 = 1）
     e = ev.reset_index()
@@ -173,7 +173,7 @@ def frames():
     tx = taiex.set_index("date").taiex_close.reindex(cal)
     ma = tx.rolling(60).mean()
     regime = pd.Series(np.where(tx > ma, "加權>60MA", "加權≤60MA"), index=cal).where(ma.notna())
-    return dict(cal=cal, o=o, c=c, amt=amt, F=F, ret1=ret1, jump=jump, vol20=vol20, univ=univ, r=r, ok=ok, tx=tx, regime=regime)
+    return dict(cal=cal, o=o, h=P["high"], l=P["low"], v=P["volume"], c=c, amt=amt, F=F, ret1=ret1, jump=jump, vol20=vol20, univ=univ, r=r, ok=ok, tx=tx, regime=regime)
 
 
 def samples(fr):
