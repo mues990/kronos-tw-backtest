@@ -21,7 +21,7 @@ jobs:
           python-version: "3.12"
       - run: pip install yfinance==0.2.66 pandas==2.2.3 pyarrow tabulate
       - run: |
-          python research/pool/pool.py pool_out > /dev/null
+          python research/pool/pool.py pool_out 2> pool_out_err.log
           cat pool_out/summary.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
