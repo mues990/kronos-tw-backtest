@@ -1,0 +1,10 @@
+{
+ "ticker": "0050",
+ "torch": "2.5.1+cpu",
+ "threads": 1,
+ "model_rev": "2b554741eca47781b64468546e77fef3e85130e6",
+ "tok_rev": "0e0117387f39004a9016484a186a908917e22426",
+ "kronos_commit": "67b630e67f6a18c9e9be918d9b4337c960db1e9a",
+ "code_rev": "34bc7deffd78c97f458daad98a8edb0ffdaf1665",
+ "started": "2026-11-09T22:41:58.862570+08:00"
+}

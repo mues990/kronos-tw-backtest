@@ -1,0 +1,136 @@
+name: kronos-backtest
+
+# 重跑方式：(1) 改 backtest/config.json 的 mode 後推到 main；或 (2) 在 Actions 頁面按 Run workflow
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [pilot, full]
+        default: pilot
+  push:
+    branches: [main]
+    paths: [backtest/config.json]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backtest-${{ github.ref }}
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      mode: ${{ steps.p.outputs.mode }}
+      tickers: ${{ steps.p.outputs.tickers }}
+      model_rev: ${{ steps.p.outputs.model_rev }}
+      tok_rev: ${{ steps.p.outputs.tok_rev }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas==2.2.2 numpy huggingface_hub==0.33.1
+      - id: p
+        name: 決定模式、鎖定模型版本
+        run: |
+          python - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json
+          from huggingface_hub import HfApi
+          c = json.load(open("backtest/config.json"))
+          mode = "${{ inputs.mode }}" or c["mode"]
+          t = c["pilot_tickers"] if mode == "pilot" else c["etf"] + c["stocks"]
+          print(f"mode={mode}")
+          print(f"tickers={json.dumps(t)}")
+          print(f"model_rev={HfApi().model_info(c['model']).sha}")
+          print(f"tok_rev={HfApi().model_info(c['tokenizer']).sha}")
+          EOF
+          cat "$GITHUB_OUTPUT"
+      - name: 抓 TWSE 共用資料（交易日曆、除權息、減資、處置、注意股）
+        env:
+          BT_MODE: ${{ steps.p.outputs.mode }}
+        run: python backtest/twse.py prep
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shared
+          path: |
+            backtest/work
+            backtest/raw
+          retention-days: 14
+
+  infer:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        ticker: ${{ fromJSON(needs.prep.outputs.tickers) }}
+    env:
+      BT_MODE: ${{ needs.prep.outputs.mode }}
+      MODEL_REV: ${{ needs.prep.outputs.model_rev }}
+      TOK_REV: ${{ needs.prep.outputs.tok_rev }}
+      PYTHONPATH: kronos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Get Kronos (pinned commit)
+        run: |
+          git init -q kronos
+          git -C kronos fetch -q --depth 1 https://github.com/shiyu-coder/Kronos.git 67b630e67f6a18c9e9be918d9b4337c960db1e9a
+          git -C kronos checkout -q FETCH_HEAD
+      - run: |
+          pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ env.MODEL_REV }}-${{ env.TOK_REV }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: shared
+          path: backtest
+      - name: 推論 ${{ matrix.ticker }}
+        run: python backtest/infer.py ${{ matrix.ticker }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t-${{ matrix.ticker }}
+          path: |
+            backtest/work/*_${{ matrix.ticker }}.*
+            backtest/raw/stock/${{ matrix.ticker }}
+          retention-days: 14
+
+  score:
+    needs: [prep, infer]
+    if: always() && needs.prep.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BT_MODE: ${{ needs.prep.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas==2.2.2 numpy tabulate
+      - uses: actions/download-artifact@v4
+        with:
+          path: backtest
+          merge-multiple: true
+      - run: python backtest/score.py
+      - name: 存回原始資料與結果
+        run: |
+          out=backtest/results; [ "$BT_MODE" = pilot ] && out=backtest/results_pilot
+          mkdir -p $out/run && cp backtest/work/*meta*.json backtest/work/grid.csv backtest/work/events.csv backtest/work/punish.csv backtest/work/notice.csv backtest/work/preds_*.csv $out/run/
+          git add backtest/raw $out
+          git -c user.name="kronos-bot" -c user.email="actions@users.noreply.github.com" commit -qm "Backtest $BT_MODE $(date -u +%F) [skip ci]"
+          git pull -q --rebase origin "$GITHUB_REF_NAME" && git push origin HEAD:"$GITHUB_REF_NAME"

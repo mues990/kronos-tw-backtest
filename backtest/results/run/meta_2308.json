@@ -1,0 +1,11 @@
+{
+ "ticker": "2308",
+ "torch": "2.5.1+cpu",
+ "threads": 2,
+ "cpu_count": 2,
+ "model_rev": "2b554741eca47781b64468546e77fef3e85130e6",
+ "tok_rev": "0e0117387f39004a9016484a186a908917e22426",
+ "kronos_commit": "67b630e67f6a18c9e9be918d9b4337c960db1e9a",
+ "code_rev": "39e534545698f85dbb46551ce5a695dce0a44cd0",
+ "started": "2026-11-09T22:55:01.444629+08:00"
+}
