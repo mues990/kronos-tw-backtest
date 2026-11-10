@@ -31,7 +31,11 @@ jobs:
         run: python research/timing/timing.py universe out 2> out_err.log
       - name: selected pool（今日狀態）
         run: python research/timing/timing.py pool out 2>> out_err.log
-      - run: cat out/universe.md out/pool.md >> "$GITHUB_STEP_SUMMARY"
+      - name: v2：買進狀態、中線出場、W1
+        run: python research/timing/timing2.py universe out 2>> out_err.log
+      - name: v2：每日狀態（不含持倉）
+        run: python research/timing/timing2.py daily out 2>> out_err.log
+      - run: cat out/v2_universe.md out/daily.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
