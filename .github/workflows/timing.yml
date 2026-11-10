@@ -35,7 +35,9 @@ jobs:
         run: python research/timing/timing2.py universe out 2>> out_err.log
       - name: v2：每日狀態（不含持倉）
         run: python research/timing/timing2.py daily out 2>> out_err.log
-      - run: cat out/v2_universe.md out/daily.md >> "$GITHUB_STEP_SUMMARY"
+      - name: v3：技術面濾網（相對強弱、市場寬度）
+        run: python research/timing/timing3.py out 2>> out_err.log
+      - run: cat out/v2_universe.md out/v3_universe.md out/daily.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
