@@ -312,6 +312,9 @@ def daily(out, positions=None):
             f"（有效 {len(ok)}/{len(upool)} 檔）。只針對新買進，已持有不因此賣出。" if len(ok) >= 120 else
             f"R1 追高：比較股票池有效資料只有 {len(ok)} 檔，今日不判斷。")
     txt = ["# 每日狀態（selected pool）", "", note, "", S.astype(object).where(S.notna(), "").astype(str).to_markdown(index=False, disable_numparse=True), ""]
+    missing = sorted(set(pos.code.astype(str)) - set(names))
+    if missing:  # 持倉不在 pool.txt → 沒有停損與到期檢查，必須明確提示
+        txt[1:1] = ["", f"⚠ 持倉不在追蹤清單、沒有檢查停損與到期：{', '.join(missing)}（請加入 research/timing/pool.txt）"]
     if prow:
         Pp = pd.DataFrame(prow)
         Pp.to_csv(out / "daily_positions.csv", index=False)
