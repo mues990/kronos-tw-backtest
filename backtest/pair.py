@@ -148,7 +148,8 @@ def paired_table(mode):
         parts = [pd.read_csv(p, dtype={"ticker": str}, parse_dates=["origin"]) for p in (RUNS / k["dir"]).glob("preds_*.csv")]
         p = pd.concat(parts) if parts else pd.DataFrame(columns=["ticker", "origin", "lookback"])
         p = p[p.lookback == LB].drop_duplicates(["ticker", "origin"])
-        keep = ["ticker", "origin", "origin_close", "pred_close_d1", "pred_close_d5", "input_hash", "input_start", "secs"]
+        keep = ["ticker", "origin", "origin_close", "pred_close_d1", "pred_close_d5", "input_hash", "input_start",
+                "input_last_date", "pred_d5_date", "finite", "secs"]
         out = out.merge(p[keep].rename(columns={c: f"{c}_{name}" for c in keep[2:]}), on=["ticker", "origin"], how="left")
     st = pd.read_csv(SNAP / "predictions_scored.csv", dtype={"ticker": str}, parse_dates=["origin"])
     st = st[st.lookback == LB][["ticker", "origin", "pred_close_d1", "pred_close_d5", "input_start"]]
@@ -263,7 +264,11 @@ def score(mode):
            "最大相對差": f"{h.base_vs_stored_d5_rel.abs().max():.2e}" if len(h) else "—",
            "方向不同筆數": int((direction(h.ret_base, h.thr) != direction(h.ret_stored, h.thr)).sum()),
            "input_start 不同": int((h.input_start_base != h.input_start_stored).sum()),
-           "Base/TW 輸入雜湊不同": int((d.pred_close_d5_tw.notna() & d.pred_close_d5_base.notna() & ~d.same_input).sum())}
+           "Base/TW 輸入雜湊不同": int((d.pred_close_d5_tw.notna() & d.pred_close_d5_base.notna() & ~d.same_input).sum()),
+           "非有限值筆數": int(sum((d[f"finite_{n}"] == False).sum() for n in ("base", "tw"))),  # noqa: E712
+           "輸入末日≠起點": int(sum((d[f"input_last_date_{n}"].notna() & (pd.to_datetime(d[f"input_last_date_{n}"]) != d.origin)).sum()
+                                for n in ("base", "tw"))),
+           "模型第5日日期≠交易所第5日（休市日造成，預期內）": int((pd.to_datetime(d.pred_d5_date_tw) != d.target).sum())}
     lines += ["## Base 重跑 vs 已存結果、兩模型輸入一致性", "", md(pd.DataFrame([rep]), ".0f"), ""]
 
     T, verdicts = {}, {}

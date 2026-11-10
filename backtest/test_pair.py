@@ -19,7 +19,7 @@ cur = {}
 for name in ("base", "tw"):
     d = pair.RUNS / f"{name}-test"
     d.mkdir(parents=True)
-    p = st[["ticker", "origin", "lookback", "origin_close", "pred_close_d1", "pred_close_d5", "input_start", "secs"]].assign(input_hash="x")
+    p = st[["ticker", "origin", "lookback", "origin_close", "pred_close_d1", "pred_close_d5", "input_start", "secs"]].assign(input_hash="x", input_last_date=lambda x: x.origin, pred_d5_date=lambda x: x.origin, finite=True)
     if name == "tw":
         p = p.assign(pred_close_d5=p.origin_close * 1.01)  # TW：一律預測漲 1%
     p.drop(index=p.index[:3]).to_csv(d / "preds_all.csv", index=False) if name == "tw" else p.to_csv(d / "preds_all.csv", index=False)
