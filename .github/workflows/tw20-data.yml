@@ -8,8 +8,11 @@ on:
       stage:
         description: 'smoke＝第 1 段小規模檢查；stage2＝A／B 模型與驗證期評估（不評分 2025 以後）'
         type: choice
-        options: [smoke, stage2]
+        options: [smoke, stage2, stage2_extra]
         default: smoke
+      source_run:
+        description: 'stage2_extra 讀取哪一次 stage2 執行的 artifact（run id）'
+        default: '42762827049'
       codes:
         description: 'smoke test 計算 Alpha158 的上市普通股代號（4 碼、逗號分隔、最多 20 檔）'
         default: '2330,2317,2454,2603,2327,1101,2881,2308,2382,2492,1476,3413'
@@ -132,4 +135,57 @@ jobs:
         with:
           name: tw20-stage2
           path: ${{ env.OUT }}
+          retention-days: 90
+
+  stage2_extra:
+    if: inputs.stage == 'stage2_extra'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: 分支與輸入檢查
+        env:
+          SRC: ${{ inputs.source_run }}
+        run: |
+          [ "$GITHUB_REF" = "refs/heads/research/tw20" ] || { echo "::error::只能在 research/tw20 分支執行"; exit 1; }
+          echo "$SRC" | grep -Eq '^[0-9]{6,15}$' || { echo "::error::source_run 必須是數字 run id"; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: research/tw20/requirements.lock
+      - name: 安裝鎖定依賴
+        run: pip install -r research/tw20/requirements.lock
+      - name: 取得第 2 段 artifact（不重訓）
+        uses: actions/download-artifact@v4
+        with:
+          name: tw20-stage2
+          path: ${{ env.OUT }}
+          run-id: ${{ inputs.source_run }}
+          github-token: ${{ github.token }}
+      - name: 核對凍結模型與 repo 內 frozen.json 一致
+        run: |
+          python - <<'PY'
+          import hashlib, json, os
+          out = os.environ["OUT"]
+          a = json.load(open(f"{out}/stage2/frozen.json")); b = json.load(open("research/tw20/results/stage2/frozen.json"))
+          for k in ("A", "B"):
+              h = hashlib.sha256(open(f"{out}/stage2/model_{k}.txt", "rb").read()).hexdigest()
+              assert h == a["models"][k]["sha256"] == b["models"][k]["sha256"], k
+          assert a["thresholds"] == b["thresholds"] and a["primary"] == b["primary"]
+          print("模型雜湊、門檻、主要候選皆一致")
+          PY
+      - name: 補充分析
+        run: |
+          python research/tw20/stage2_extra.py "$OUT" 2>&1 | grep -v PerformanceWarning
+          cat "$OUT/stage2_extra/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "source_run=${{ inputs.source_run }} commit=$GITHUB_SHA run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$OUT/stage2_extra/run.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tw20-stage2-extra
+          path: ${{ env.OUT }}/stage2_extra
           retention-days: 90
