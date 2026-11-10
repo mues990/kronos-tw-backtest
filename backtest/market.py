@@ -153,8 +153,8 @@ def base():
     cal, P, F, ev = panel()
     o, c, amt = P["open"], P["close"], P["amount"]
     c = c.where(c > 0)
-    ret1 = c / (c.shift() * F) - 1                       # 還原後日報酬
-    jump = ret1.abs() > 0.105                            # 超過漲跌幅限制、又沒有對應公司行動 → 視為資料／面額變更等異常
+    ret1 = c / (c.ffill().shift() * F) - 1               # 還原後日報酬（對上一個有成交的收盤，停牌空檔也比得到）
+    jump = ret1.abs() > 0.105                            # 超過漲跌幅限制、又沒有對應公司行動 → 視為面額變更／資料異常
     vol20 = ret1.rolling(20, min_periods=18).std() * np.sqrt(20)
     hist = c.notna().cumsum()
     liq = amt.where(c.notna()).rolling(LIQ_DAYS, min_periods=40).median()
@@ -198,7 +198,8 @@ def base():
     for k, t in T.items():
         t.to_csv(out / "tables" / f"{k}.csv", index=False)
     s.to_csv(out / "samples.csv.gz", index=False, compression="gzip")
-    md = lambda t: t.to_markdown(index=False, floatfmt=".1f")
+    md = lambda t: t.apply(lambda c: c.map(lambda v: f"{v:.1f}") if c.dtype.kind == "f" else c.astype(str)).to_markdown(
+        index=False, disable_numparse=True)
     tk = T["檔_開發期"]
     lines = ["# 條件研究基準（不加任何條件）", "",
              f"上市普通股，每日流動性前 {TOP_N} 檔（{LIQ_DAYS} 日成交金額中位數，逐日決定、不看未來），收盤 ≥ {MIN_PRICE:.0f} 元、"
