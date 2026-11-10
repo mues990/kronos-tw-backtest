@@ -1,0 +1,84 @@
+name: market-data
+
+# 全市場日 K（2015 起）與條件研究基準表。只能手動執行。
+#   try：只抓 2015-01-05 與 2026-10-30 兩天，驗證欄位解析（結果存 *_try 檔）
+#   full：每年一個 job 平行抓取（已抓過的日期跳過，可續跑），最後合併算基準表並存回 repo
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [try, full]
+        default: try
+      years:
+        description: 'full 模式要抓的年份（JSON 陣列）'
+        default: '[2015,2016,2017,2018,2019,2020,2021,2022,2023,2024,2025,2026]'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: market-${{ github.ref }}
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        year: ${{ fromJSON(inputs.mode == 'try' && '[2015, 2026]' || inputs.years) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas==2.2.2 numpy
+      - name: 抓 ${{ matrix.year }}
+        run: |
+          if [ "${{ inputs.mode }}" = try ]; then
+            d=$([ ${{ matrix.year }} = 2015 ] && echo 2015-01-05 || echo 2026-10-30)
+            python backtest/market.py fetch ${{ matrix.year }} --days $d
+            python -c "import pandas as pd; d=pd.read_csv('backtest/market/daily_${{ matrix.year }}_try.csv.gz', dtype={'code':str}); print(len(d)); print(d.head(8).to_string()); print(d.describe().to_string())"
+          else
+            python backtest/market.py fetch ${{ matrix.year }}
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: y-${{ matrix.year }}
+          path: |
+            backtest/market/*${{ matrix.year }}*
+            backtest/raw/calendar/FMTQIK_${{ matrix.year }}*.json
+            backtest/raw/events/*_${{ matrix.year }}.json
+          retention-days: 14
+
+  save:
+    needs: fetch
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas==2.2.2 numpy tabulate
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: y-*
+          path: backtest
+          merge-multiple: true
+      - name: 基準表
+        if: inputs.mode == 'full'
+        run: python backtest/market.py base
+      - name: 存回 repo（不會觸發其他 workflow）
+        run: |
+          git config user.name "kronos-bot" && git config user.email "actions@users.noreply.github.com"
+          git add backtest/market backtest/raw/calendar backtest/raw/events
+          git diff --cached --quiet && exit 0
+          git commit -qm "Market data ${{ inputs.mode }} $(date -u +%F) [skip ci]"
+          git pull -q --rebase origin "$GITHUB_REF_NAME" && git push origin HEAD:"$GITHUB_REF_NAME"
