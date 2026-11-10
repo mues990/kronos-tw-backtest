@@ -149,7 +149,8 @@ def panel():
     return cal, P, F, ev
 
 
-def base():
+def frames():
+    """逐日 × 逐檔的矩陣：價量、還原日報酬、波動、股票池、20 日結算報酬、可評分遮罩、大盤狀態。"""
     cal, P, F, ev = panel()
     o, c, amt = P["open"], P["close"], P["amount"]
     c = c.where(c > 0)
@@ -168,7 +169,16 @@ def base():
     r = exitc / (entry * fwin) - 1
     bad_win = jump.astype(float).rolling(H + 21, min_periods=1).max().shift(-H).fillna(1).astype(bool)  # t−20..t+20 內有異常跳空
     ok = univ & r.notna() & entry.gt(0) & ~bad_win
+    taiex = pd.concat(pd.read_csv(f, parse_dates=["date"]) for f in sorted(OUT.glob("manifest_[0-9][0-9][0-9][0-9].csv")))
+    tx = taiex.set_index("date").taiex_close.reindex(cal)
+    ma = tx.rolling(60).mean()
+    regime = pd.Series(np.where(tx > ma, "加權>60MA", "加權≤60MA"), index=cal).where(ma.notna())
+    return dict(cal=cal, o=o, c=c, amt=amt, F=F, ret1=ret1, jump=jump, vol20=vol20, univ=univ, r=r, ok=ok, tx=tx, regime=regime)
 
+
+def samples(fr):
+    """可評分的「日期 × 檔」長表，附勝負、期間、波動組（開發期三分位固定）、大盤狀態。"""
+    ok, r, vol20 = fr["ok"], fr["r"], fr["vol20"]
     keep = ok.stack()
     keep = keep[keep].index  # 明確挑出入選的「日期 × 檔」（不依賴 stack 是否丟 NaN）
     s = pd.DataFrame({"ret": r.stack().reindex(keep), "vol20": vol20.stack().reindex(keep)}).reset_index()
@@ -178,11 +188,14 @@ def base():
     s["期間"] = pd.cut(s.year, [0, 2022, 2024, 9999], labels=list(PERIODS))
     q = s[s["期間"] == "開發"].vol20.quantile([1 / 3, 2 / 3]).values  # 波動分組門檻用開發期固定
     s["波動組"] = pd.cut(s.vol20, [-np.inf, q[0], q[1], np.inf], labels=["低", "中", "高"])
-    taiex = pd.concat(pd.read_csv(f, parse_dates=["date"]) for f in sorted(OUT.glob("manifest_[0-9][0-9][0-9][0-9].csv")))
-    tx = taiex.set_index("date").taiex_close.reindex(cal)
-    ma = tx.rolling(60).mean()
-    regime = pd.Series(np.where(tx > ma, "加權>60MA", "加權≤60MA"), index=cal).where(ma.notna())
-    s["大盤"] = s.date.map(regime)
+    s["大盤"] = s.date.map(fr["regime"])
+    return s, q
+
+
+def base():
+    fr = frames()
+    cal = fr["cal"]
+    s, q = samples(fr)
 
     def tab(by):
         g = s.groupby(by, observed=True)
