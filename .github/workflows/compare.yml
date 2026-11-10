@@ -1,0 +1,114 @@
+name: kronos-compare
+
+# 原版 Base vs 台股微調版的 5 日配對比較。只能手動執行；設定在 backtest/compare/config.json（不會觸發 backtest.yml）。
+# 結果按標的批次存回 backtest/compare/runs/<模型>-<快取鍵>/；重跑同設定會跳過已完成的列（續跑）。
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [pilot, full]
+        default: pilot
+
+permissions:
+  contents: write
+
+concurrency:
+  group: compare-${{ github.ref }}
+
+env:
+  PYTHONUNBUFFERED: "1"
+  TWSE_OFFLINE: "1"   # 只用 repo 內已存的 TWSE 原始資料（與原版回測同一資料版本）
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      tickers: ${{ steps.p.outputs.tickers }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas==2.2.2 numpy huggingface_hub==0.33.1
+      - id: p
+        name: 解析模型版本、存模型卡與 config、算快取鍵
+        run: python backtest/pair.py prep --mode ${{ inputs.mode }} >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prep
+          path: backtest/compare/runs
+          retention-days: 14
+
+  infer:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        ticker: ${{ fromJSON(needs.prep.outputs.tickers) }}
+    env:
+      PYTHONPATH: kronos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Get Kronos (pinned commit)
+        run: |
+          git init -q kronos
+          git -C kronos fetch -q --depth 1 https://github.com/shiyu-coder/Kronos.git 67b630e67f6a18c9e9be918d9b4337c960db1e9a
+          git -C kronos checkout -q FETCH_HEAD
+      - run: |
+          pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+          pip freeze > pip-freeze.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: prep
+          path: backtest/compare/runs
+      - name: 推論 ${{ matrix.ticker }}（Base 與 TW）
+        run: python backtest/pair.py infer ${{ matrix.ticker }} --mode ${{ inputs.mode }}
+      - name: 收集本批結果
+        if: always()
+        run: |
+          mkdir -p out && cd backtest/compare/runs
+          find . -path "*/preds_${{ matrix.ticker }}.csv" -o -path "*/env/*_${{ matrix.ticker }}.json" | xargs -r cp --parents -t ../../../out
+          cp ../../../pip-freeze.txt ../../../out/pip-freeze_${{ matrix.ticker }}.txt 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t-${{ matrix.ticker }}
+          path: out
+          retention-days: 14
+
+  score:
+    needs: [prep, infer]
+    if: always() && needs.prep.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas==2.2.2 numpy tabulate
+      - uses: actions/download-artifact@v4
+        with:
+          name: prep
+          path: backtest/compare/runs
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: t-*
+          path: backtest/compare/runs
+          merge-multiple: true
+      - run: mkdir -p backtest/compare/env && mv backtest/compare/runs/pip-freeze_*.txt backtest/compare/env/ 2>/dev/null || true
+      - run: python backtest/pair.py score --mode ${{ inputs.mode }}
+      - name: 存回結果（不會觸發其他 workflow）
+        run: |
+          git add backtest/compare
+          git -c user.name="kronos-bot" -c user.email="actions@users.noreply.github.com" commit -qm "Compare ${{ inputs.mode }} $(date -u +%F) [skip ci]"
+          git pull -q --rebase origin "$GITHUB_REF_NAME" && git push origin HEAD:"$GITHUB_REF_NAME"

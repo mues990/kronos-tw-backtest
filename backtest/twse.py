@@ -43,8 +43,10 @@ def fetch(path, params, name, final):
     f = RAW / f"{name}.json"
     if f.exists():
         js = json.loads(f.read_text(encoding="utf-8"))
-        if js.get("_final"):
+        if js.get("_final") or os.environ.get("TWSE_OFFLINE"):  # 離線：只用 repo 內已存的原始資料（固定資料版本）
             return js
+    if os.environ.get("TWSE_OFFLINE"):
+        raise RuntimeError(f"離線模式缺少原始資料 {f}")
     url = BASE + path + "?" + urllib.parse.urlencode({**params, "response": "json"})
     err = None
     for i in range(5):

@@ -1,0 +1,17 @@
+{
+  "note": "原版 Base vs 台股微調版的 5 日配對比較（探索性：2026 年 Base 結果已看過）。只由 .github/workflows/compare.yml 手動執行；不會觸發 backtest.yml。",
+  "models": {
+    "base": {"model": "NeoQuasar/Kronos-base", "tokenizer": "NeoQuasar/Kronos-Tokenizer-base"},
+    "tw": {"model": "talant28/Kronos-TW-Predictor", "tokenizer": "talant28/Kronos-TW-Tokenizer",
+           "author_claims": {"source": "兩個 Hugging Face repo 的 README（作者聲明，未獨立核實）",
+                             "base_model": "NeoQuasar/Kronos-base",
+                             "train_data": "613 檔 TWSE 上市股", "train_period": ["2010-01-01", "2024-12-31"],
+                             "train_pred_len": 10, "tokenizer_lookback": 90,
+                             "price_adjustment": "未載明", "volume_amount_units": "未載明"}}
+  },
+  "lookback": 90, "pred_len": 5, "max_context": 512, "T": 1.0, "top_p": 0.9, "sample_count": 10,
+  "seed": 20261109, "seed_rule": "(seed + crc32('代號|起點YYYY-MM-DD|lookback')) mod 2^31，與原版回測相同",
+  "snapshot": "backtest/results",
+  "period": "holdout",
+  "pilot": {"0050": ["2026-01-20", "2026-07-17", "2026-10-30"], "2421": ["2026-01-06", "2026-06-03", "2026-10-30"]}
+}
