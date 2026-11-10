@@ -1,6 +1,7 @@
 """timing v3：技術面濾網（H2 相對強弱、H3 市場寬度）。定義依 research/timing/protocol_v3.json（事前登錄）。
 
 python research/timing/timing3.py OUT      # 讀 OUT/v2_samples.csv.gz；沒有就先跑 timing2.py universe OUT
+python research/timing/timing3.py rs_universe OUT   # 產生 R1 每日報告的比較股票池 rs_universe.txt（protocol_v4_forward.json）
 H1（模型 A）已登錄但需要 tw20 artifact，本程式不執行。
 """
 import json
@@ -156,5 +157,15 @@ def run(out):
     print("\n".join(txt))
 
 
+def rs_universe(out):
+    """repo 內證交所資料最新日的上市流動性前 150 檔（tw20 股票池規則）→ research/timing/rs_universe.txt。"""
+    cal, P, F, _, _ = tw20.panel(Path(out))
+    L, _, _ = tw20.label_frame(cal, P, F)
+    last = L.date.max()
+    codes = sorted(L[L.date == last].code)
+    (HERE / "rs_universe.txt").write_text(f"# R1 比較股票池：上市流動性前 {len(codes)} 檔，資料日 {last:%Y-%m-%d}\n" + "\n".join(codes) + "\n")
+    print(last.date(), len(codes))
+
+
 if __name__ == "__main__":
-    run(sys.argv[1])
+    rs_universe(sys.argv[2]) if sys.argv[1] == "rs_universe" else run(sys.argv[1])

@@ -216,6 +216,16 @@ def universe(out):
     print(txt)
 
 
+def r1_cols(t, sym, close, twb, rs_pool):
+    if not t[0].isdigit() or t.startswith("00"):
+        return {"RS百分位": "", "R1追高": "不適用"}
+    p, f = r1(rs_last(close, twb), rs_pool)
+    if f is None:
+        return {"RS百分位": "", "R1追高": "資料不足"}
+    tag = "是" if f else "—"
+    return {"RS百分位": round(100 * p), "R1追高": tag + ("（上櫃參考）" if sym.endswith(".TWO") and f else "")}
+
+
 def position_status(I, dates, entry_date, entry_price):
     """持倉狀態：各出場規則今天（最後一根 K）是否成立。entry_price 為實際成本（還原尺度以最新價為準，除權息後需自行調整）。"""
     t0 = int(np.searchsorted(dates, pd.Timestamp(entry_date)))
@@ -229,6 +239,22 @@ def position_status(I, dates, entry_date, entry_price):
             "E2_破120線且線下彎": bool(armed and C[i] < I["ma120"][i] and I["ma120"][i] < I["ma120"][i - 20]),
             "E3_高點回落25%": bool(C[i] < hc * 0.75), "E4_高點回落30%": bool(C[i] < hc * 0.70), "E5_Chandelier5": bool(C[i] < ch),
             "已滿250日": bool(i - t0 >= 250)}
+
+
+def rs_last(close, bench):
+    """最後一日的 RS：t−250→t−20 報酬 − 大盤同期（protocol_v4_forward.json）。兩者都對齊到大盤交易日。"""
+    c = close.reindex(bench.index).ffill()
+    if len(c) < 251 or np.isnan(c.iloc[-251]) or np.isnan(c.iloc[-21]):
+        return np.nan
+    return c.iloc[-21] / c.iloc[-251] - 1 - (bench.iloc[-21] / bench.iloc[-251] - 1)
+
+
+def r1(rs, rs_pool):
+    """回傳 (百分位, 是否 R1)。百分位 = 比較股票池中 RS 小於它的比例；R1 = RS ≥ 比較股票池第 80 百分位。"""
+    u = rs_pool[~np.isnan(rs_pool)]
+    if np.isnan(rs) or len(u) < 120:
+        return np.nan, None
+    return float((u < rs).mean()), bool(rs >= np.quantile(u, 0.80))
 
 
 def daily(out, positions=None):
@@ -253,6 +279,10 @@ def daily(out, positions=None):
         except Exception:  # ponytail: 查不到交易所就退回 S&P 500
             return "US"
     pos = pd.read_csv(positions, dtype={"code": str}) if positions else pd.DataFrame(columns=["code", "entry_date", "entry_price"])
+    twb = bench["TW"].dropna()
+    upool = [x for x in (HERE / "rs_universe.txt").read_text().split() if x.isdigit()]
+    uc = yf.download([f"{c}.TW" for c in upool], start=f"{twb.index[-1].year - 2}-01-01", auto_adjust=True, progress=False)["Close"]
+    rs_pool = np.array([rs_last(uc[k].dropna(), twb) if k in uc else np.nan for k in uc.columns])
     rows, prow = [], []
     for t in names:
         for sym in ([f"{t}.TW", f"{t}.TWO"] if t[0].isdigit() else [t]):
@@ -272,12 +302,16 @@ def daily(out, positions=None):
         rows.append({"代號": t, "資料日": f"{d.index[i]:%Y-%m-%d}", "收盤": round(I["C"][i], 2), "狀態": state_of(I, i) or "資料不足",
                      "距一年高點%": round(100 * (I["C"][i] / I["h250"][i] - 1), 1), "對120日線%": round(100 * (I["C"][i] / I["ma120"][i] - 1), 1),
                      "W1弱於大盤": "今日新增" if onset else "是" if w1 else "—",
-                     "W1基準": {"TW": "加權", "US": "S&P500", "NQ": "Nasdaq"}[bk]})
+                     "W1基準": {"TW": "加權", "US": "S&P500", "NQ": "Nasdaq"}[bk], **r1_cols(t, sym, d.close, twb, rs_pool)})
         for p in pos[pos.code == t].itertuples():
             prow.append({"代號": t, "進場日": p.entry_date, "成本": p.entry_price, **position_status(I, d.index, p.entry_date, p.entry_price)})
     S = pd.DataFrame(rows)
     S.to_csv(out / "daily_status.csv", index=False)
-    txt = ["# 每日狀態（selected pool）", "", S.astype(object).where(S.notna(), "").astype(str).to_markdown(index=False, disable_numparse=True), ""]
+    ok = rs_pool[~np.isnan(rs_pool)]
+    note = (f"R1 追高：RS（t−250→t−20 報酬減加權指數）≥ 比較股票池第 80 百分位 {100 * np.quantile(ok, 0.8):+.1f} pp"
+            f"（有效 {len(ok)}/{len(upool)} 檔）。只針對新買進，已持有不因此賣出。" if len(ok) >= 120 else
+            f"R1 追高：比較股票池有效資料只有 {len(ok)} 檔，今日不判斷。")
+    txt = ["# 每日狀態（selected pool）", "", note, "", S.astype(object).where(S.notna(), "").astype(str).to_markdown(index=False, disable_numparse=True), ""]
     if prow:
         Pp = pd.DataFrame(prow)
         Pp.to_csv(out / "daily_positions.csv", index=False)

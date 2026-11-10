@@ -22,3 +22,14 @@ assert r and r["x"] == 321 and r["reason"] in ("初始停損", "移動停利") a
 assert abs(r["R"] - r["ret"] / r["risk"]) < 1e-12 and 0.05 - 1e-9 <= r["risk"] <= 0.30 + 1e-9
 assert tm.simulate(I, n - 10) is None                           # 資料內未完成 → 不計
 print("OK")
+
+# R1 追高（protocol_v4_forward.json）
+import timing2 as t2
+b = pd.Series(100.0, index=pd.bdate_range("2023-01-02", periods=300))
+cl = pd.Series(np.r_[np.full(49, 50.0), np.linspace(50, 100, 251)], index=b.index)
+assert abs(t2.rs_last(cl, b) - (cl.iloc[-21] / cl.iloc[-251] - 1)) < 1e-12        # 大盤持平 → RS = 個股 t−250→t−20 報酬
+assert np.isnan(t2.rs_last(cl.iloc[-100:], b))                                     # 歷史不足 → 不判斷
+pool = np.arange(150) / 100.0                                                        # 0.00…1.49；第 80 百分位 = 1.192
+assert t2.r1(1.20, pool) == (120 / 150, True) and t2.r1(1.19, pool)[1] is False
+assert t2.r1(1.0, np.r_[pool[:100], np.full(50, np.nan)])[1] is None                # 有效檔數 < 120 → 不判斷
+print("R1 OK")
