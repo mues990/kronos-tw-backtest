@@ -1,0 +1,57 @@
+name: timing-h1
+
+# timing v3 H1：凍結模型 A 當進場濾網（規格 research/timing/protocol_v3.json）。
+# 只讀 tw20 第 2 段 artifact，不重訓、不評分 2025 年以後；結果 md 寫回 research/timing 分支。
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/timing]
+    paths: [.github/workflows/timing-h1.yml]
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: timing-h1
+
+env:
+  PYTHONUNBUFFERED: "1"
+  TWSE_OFFLINE: "1"
+  SOURCE_RUN: "42762827049"
+
+jobs:
+  run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: 分支檢查
+        run: '[ "$GITHUB_REF" = "refs/heads/research/timing" ] || { echo "::error::只能在 research/timing 分支執行"; exit 1; }'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pandas==2.2.3 numpy==2.2.6 pyarrow==26.0.1 lightgbm==4.7.0 tabulate
+      - run: python research/timing/timing_h1.py demo
+      - name: v2 進場樣本
+        run: python research/timing/timing2.py universe out > /dev/null
+      - name: 取得 tw20 第 2 段 artifact（不重訓）
+        uses: actions/download-artifact@v4
+        with:
+          name: tw20-stage2
+          path: tw20_out
+          run-id: ${{ env.SOURCE_RUN }}
+          github-token: ${{ github.token }}
+      - name: H1 計分與評估
+        run: |
+          python research/timing/timing_h1.py out tw20_out
+          cat out/h1_universe.md >> "$GITHUB_STEP_SUMMARY"
+      - name: 結果寫回分支
+        run: |
+          cp out/h1_universe.md research/timing/results/
+          echo "source_run=$SOURCE_RUN run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID commit=$GITHUB_SHA" >> research/timing/results/h1_universe.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add research/timing/results/h1_universe.md
+          git commit -m "timing v3 H1 結果（run $GITHUB_RUN_ID）"
+          git pull --rebase origin research/timing && git push origin HEAD:research/timing
