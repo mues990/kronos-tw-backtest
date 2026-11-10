@@ -242,8 +242,16 @@ def daily(out, positions=None):
             d.columns = d.columns.get_level_values(0)
         d.columns = [x.lower() for x in d.columns]
         return d
-    bench = {"TW": get("^TWII").close, "US": get("^GSPC").close}
+    bench = {"TW": get("^TWII").close, "US": get("^GSPC").close, "NQ": get("^IXIC").close}
     names = [x.split()[0] for x in (HERE / "pool.txt").read_text().splitlines() if x.strip() and not x.startswith("#")]
+
+    def bkey(t):  # 台股比加權；美股比 S&P 500，Nasdaq 掛牌者比 Nasdaq 綜合
+        if t[0].isdigit():
+            return "TW"
+        try:
+            return "NQ" if yf.Ticker(t).fast_info["exchange"] in ("NMS", "NGM", "NCM") else "US"
+        except Exception:  # ponytail: 查不到交易所就退回 S&P 500
+            return "US"
     pos = pd.read_csv(positions, dtype={"code": str}) if positions else pd.DataFrame(columns=["code", "entry_date", "entry_price"])
     rows, prow = [], []
     for t in names:
@@ -256,13 +264,15 @@ def daily(out, positions=None):
             continue
         d = d[d.volume > 0].dropna(subset=["open", "high", "low", "close"])
         d["amount"] = d.volume * d.close
-        I = tm.indicators(d, bench["TW" if t[0].isdigit() else "US"].reindex(d.index).ffill().to_numpy())
+        bk = bkey(t)
+        I = tm.indicators(d, bench[bk].reindex(d.index).ffill().to_numpy())
         i = I["n"] - 1
         w1 = bool(np.nan_to_num(I["W1_弱於大盤"][i], nan=0))
         onset = w1 and not bool(np.nan_to_num(I["W1_弱於大盤"][i - 1], nan=0))
         rows.append({"代號": t, "資料日": f"{d.index[i]:%Y-%m-%d}", "收盤": round(I["C"][i], 2), "狀態": state_of(I, i) or "資料不足",
                      "距一年高點%": round(100 * (I["C"][i] / I["h250"][i] - 1), 1), "對120日線%": round(100 * (I["C"][i] / I["ma120"][i] - 1), 1),
-                     "W1弱於大盤": "今日新增" if onset else "是" if w1 else "—"})
+                     "W1弱於大盤": "今日新增" if onset else "是" if w1 else "—",
+                     "W1基準": {"TW": "加權", "US": "S&P500", "NQ": "Nasdaq"}[bk]})
         for p in pos[pos.code == t].itertuples():
             prow.append({"代號": t, "進場日": p.entry_date, "成本": p.entry_price, **position_status(I, d.index, p.entry_date, p.entry_price)})
     S = pd.DataFrame(rows)
