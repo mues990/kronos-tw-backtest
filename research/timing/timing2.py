@@ -2,10 +2,12 @@
 
 python research/timing/timing2.py universe OUT                       # 回測（上市前 150 檔）
 python research/timing/timing2.py daily OUT [--positions 檔案.csv]    # 每日狀態（selected pool；yfinance）
+股票清單讀 $POOL（預設 ~/private/pool.txt；私人資料，不要放進公開 repo）
 positions.csv 欄位：code,entry_date,entry_price（私人資料，不要放進公開 repo）
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -269,7 +271,7 @@ def daily(out, positions=None):
         d.columns = [x.lower() for x in d.columns]
         return d
     bench = {"TW": get("^TWII").close, "US": get("^GSPC").close, "NQ": get("^IXIC").close}
-    names = [x.split()[0] for x in (HERE / "pool.txt").read_text().splitlines() if x.strip() and not x.startswith("#")]
+    names = [x.split()[0] for x in Path(os.environ.get("POOL", "~/private/pool.txt")).expanduser().read_text().splitlines() if x.strip() and not x.startswith("#")]
 
     def bkey(t):  # 台股比加權；美股比 S&P 500，Nasdaq 掛牌者比 Nasdaq 綜合
         if t[0].isdigit():
@@ -314,7 +316,7 @@ def daily(out, positions=None):
     txt = ["# 每日狀態（selected pool）", "", note, "", S.astype(object).where(S.notna(), "").astype(str).to_markdown(index=False, disable_numparse=True), ""]
     missing = sorted(set(pos.code.astype(str)) - set(names))
     if missing:  # 持倉不在 pool.txt → 沒有停損與到期檢查，必須明確提示
-        txt[1:1] = ["", f"⚠ 持倉不在追蹤清單、沒有檢查停損與到期：{', '.join(missing)}（請加入 research/timing/pool.txt）"]
+        txt[1:1] = ["", f"⚠ 持倉不在追蹤清單、沒有檢查停損與到期：{', '.join(missing)}（請加入 ~/private/pool.txt）"]
     if prow:
         Pp = pd.DataFrame(prow)
         Pp.to_csv(out / "daily_positions.csv", index=False)

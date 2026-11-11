@@ -4,6 +4,7 @@ python research/timing/timing.py universe OUT   # 上市前 150 檔：開發期�
 python research/timing/timing.py pool OUT       # selected pool（yfinance）：只報告＋今日狀態
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -329,7 +330,7 @@ def pool(out):
         d.columns = [x.lower() for x in d.columns]
         return d
     bench = {"TW": get("^TWII").close, "US": get("^GSPC").close}
-    names = [x.split()[0] for x in (HERE / "pool.txt").read_text().splitlines() if x.strip() and not x.startswith("#")]
+    names = [x.split()[0] for x in Path(os.environ.get("POOL", "~/private/pool.txt")).expanduser().read_text().splitlines() if x.strip() and not x.startswith("#")]
     T, rows = [], []
     for t in names:
         for sym in ([f"{t}.TW", f"{t}.TWO"] if t[0].isdigit() else [t]):
