@@ -24,11 +24,13 @@ NAMES = {"N0": "N0 不停損", "E0_抱滿": "E0 −30%停損", "E1_破120線": "
 def fetch():
     import requests
     import yfinance as yf
-    tick = []
+    tick, member = [], {}
     for page in ("List_of_S%26P_500_companies", "List_of_S%26P_400_companies"):
         html = requests.get(f"https://en.wikipedia.org/wiki/{page}", headers={"User-Agent": "kronos-tw-backtest research (github.com/mues990)"}, timeout=60).text
         tab = next(x for x in pd.read_html(io.StringIO(html)) if "Symbol" in x.columns)
-        tick += [str(s).strip().replace(".", "-") for s in tab["Symbol"]]
+        sym = [str(s).strip().replace(".", "-") for s in tab["Symbol"]]
+        tick += sym
+        member.update({k: "S&P500" if "500" in page else "S&P400" for k in sym})
     tick = sorted(set(tick))
     assert len(tick) > 800, f"成分股清單異常：{len(tick)}"
     bench = yf.download("^GSPC", start="2014-01-01", auto_adjust=True, progress=False)
@@ -43,7 +45,7 @@ def fetch():
                 if len(d):
                     data[k] = d
         time.sleep(2)
-    return tick, data, bench["Close"].dropna()
+    return tick, data, bench["Close"].dropna(), member
 
 
 def samples(data, bench):
@@ -65,6 +67,8 @@ def samples(data, bench):
         I = tm.indicators(d, b)
         n, O, C = I["n"], I["O"], I["C"]
         g = gp.reindex(d.index).to_numpy()
+        vol60 = d.close.pct_change().rolling(60).std().to_numpy()
+        dv60 = d.amount.rolling(60).mean().to_numpy()
         for t in np.flatnonzero(g % 20 == 0):
             st = t2.state_of(I, t)
             if st is None or t + 252 >= n or t < 250:
@@ -72,7 +76,7 @@ def samples(data, bench):
             e = O[t + 1]
             r = {"code": code, "date": d.index[t], "state": st, "N0": O[t + 251] / e - 1 - COST, "N0_d": 250,
                  "RS": C[t - 20] / C[t - 250] - 1 - (b[t - 20] / b[t - 250] - 1), "W1": bool(np.nan_to_num(I["W1_弱於大盤"][t])),
-                 "跌30": bool(C[t + 1:t + 251].min() < 0.70 * e)}
+                 "跌30": bool(C[t + 1:t + 251].min() < 0.70 * e), "VOL60": vol60[t], "DV60": dv60[t]}
             for rule in RULES:
                 s = t2.sim(I, t, rule)
                 if s is None:
@@ -201,8 +205,61 @@ def report(R, E, bad, cal, n_univ, out):
     return res
 
 
+def report2(R, cal, member, out):
+    """US v2：出場規則依波動與規模分組（protocol_us_v2.json）。"""
+    per = lambda dt: np.where((dt >= tm.DEV[0]) & (dt <= tm.DEV[1]), "開發", np.where(dt >= tm.VAL0, "驗證", ""))
+    R = R.assign(期間=per(R.date))
+    R = R[(R["期間"] != "") & R.VOL60.notna() & R.DV60.notna()].copy()
+    days = {"開發": cal[(cal >= tm.DEV[0]) & (cal <= tm.DEV[1])], "驗證": cal[cal >= tm.VAL0]}
+    R["波動"] = pd.cut(R.groupby("date").VOL60.rank(pct=True), [0, .2, .4, .6, .8, 1], labels=["Q1低", "Q2", "Q3", "Q4", "Q5高"]).astype(str)
+    R["規模"] = pd.cut(R.groupby("date").DV60.rank(pct=True), [0, 1 / 3, 2 / 3, 1], labels=["小", "中", "大"]).astype(str)
+    R["指數"] = R.code.map(member).fillna("?")
+    R["交叉"] = np.where((R["波動"] == "Q5高") & (R["規模"] == "小"), "Q5高×小", "其他")
+    f = lambda m, lo, hi: f"{100 * m:+.1f} [{100 * lo:+.1f}, {100 * hi:+.1f}]"
+
+    def table(col, order):
+        rows, est = [], {}
+        for gname in order:
+            for p in ("開發", "驗證"):
+                x = R[(R[col] == gname) & (R["期間"] == p)]
+                if not len(x):
+                    continue
+                row = {col: gname, "期間": p, "樣本": len(x), "N0 平均%": f"{100 * x.N0.mean():.1f}", "N0 中位%": f"{100 * x.N0.median():.1f}",
+                       "N0 勝率%": f"{100 * (x.N0 > 0).mean():.1f}", "N0 最差5%": f"{100 * x.N0.quantile(.05):.1f}",
+                       "N0 ≤−50%": f"{100 * (x.N0 <= -.5).mean():.1f}", "其後跌30%": f"{100 * x['跌30'].mean():.1f}"}
+                for rule, nm in (("E0_抱滿", "E0−N0 pp"), ("E1_破120線", "E1−N0 pp"), ("E4_高點回落30%", "E4−N0 pp")):
+                    v = (x[rule] - x.N0).to_numpy(float)
+                    lo, hi = tm.diff_ci(x.date, v, None, None, days[p], 120)
+                    row[nm] = f(v.mean(), lo, hi)
+                    est[(gname, p, rule)] = (v.mean(), lo, hi)
+                rows.append(row)
+        return pd.DataFrame(rows).to_markdown(index=False, disable_numparse=True), est
+    t1, e1 = table("波動", ["Q1低", "Q2", "Q3", "Q4", "Q5高"])
+    t2_, _ = table("規模", ["小", "中", "大"])
+    t3, _ = table("指數", ["S&P500", "S&P400"])
+    t4, _ = table("交叉", ["Q5高×小", "其他"])
+    d, v = e1.get(("Q5高", "開發", "E0_抱滿"), (np.nan,) * 3), e1.get(("Q5高", "驗證", "E0_抱滿"), (np.nan,) * 3)
+    verdict = "高波動股該停損" if v[1] > 0 and d[0] > 0 else "高波動股停損仍較差" if v[2] < 0 and d[0] < 0 else "不確定"
+    txt = ["# US v2：出場規則依波動與規模分組", "", "規格：`research/timing/protocol_us_v2.json`。N0 = 不停損抱滿 250 日；E0 = −30% 停損；E1 = 跌破 120 日線；E4 = 高點回落 30%。",
+           "**限制：存活者偏差在高波動、小規模組最嚴重，這些組的不停損被高估最多；指數外小型股不在樣本內。**", "",
+           f"## 依波動（VOL60 同日五分位）　**判定：{verdict}**", "", t1, "", "## 依規模代理（DV60 同日三分位，描述）", "", t2_, "",
+           "## 依指數（現在的成分，描述）", "", t3, "", "## 最高波動 × 小規模（描述）", "", t4, ""]
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "us2_groups.md").write_text("\n".join(txt), encoding="utf-8")
+    print("\n".join(txt))
+    return verdict
+
+
+def run2(out):
+    tick, data, bench, member = fetch()
+    R, _, _ = samples(data, bench)
+    R.to_csv(Path(out).mkdir(parents=True, exist_ok=True) or Path(out) / "us2_samples.csv.gz", index=False)
+    report2(R, bench.index, member, out)
+
+
 def run(out):
-    tick, data, bench = fetch()
+    tick, data, bench, _ = fetch()
     R, E, bad = samples(data, bench)
     Path(out).mkdir(parents=True, exist_ok=True)
     (Path(out) / "us1_tickers.txt").write_text(f"# {pd.Timestamp.now(tz='UTC'):%Y-%m-%d} S&P 500＋S&P 400，{len(tick)} 檔；排除：{bad}\n" + "\n".join(tick) + "\n")
@@ -231,9 +288,10 @@ def demo():
     assert (R[R["跌30"]]["E0_抱滿_d"] <= 250).all() and (R[R["跌30"]]["E0_抱滿_d"] < 250).mean() > 0.9 and len(E)  # 最後一天才跌破者仍為 250
     with tempfile.TemporaryDirectory() as tmp:
         res = report(R, E, bad, cal, len(data), tmp)
-    assert set(res) >= {"E0_抱滿", "RS", "W1", "deep"}
+        v = report2(R, cal, {k: "S&P500" if int(k[1:]) % 2 else "S&P400" for k in data if k != "BAD"}, tmp)
+    assert set(res) >= {"E0_抱滿", "RS", "W1", "deep"} and v in ("高波動股該停損", "高波動股停損仍較差", "不確定")
     print("us1 demo ok", len(R), len(E))
 
 
 if __name__ == "__main__":
-    demo() if sys.argv[1] == "demo" else run(sys.argv[2])
+    demo() if sys.argv[1] == "demo" else {"run": run, "run2": run2}[sys.argv[1]](sys.argv[2])

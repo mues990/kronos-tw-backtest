@@ -1,0 +1,44 @@
+name: us2
+
+# US v2：出場規則依波動與規模分組（規格 research/timing/protocol_us_v2.json）。結果 md 寫回 research/timing 分支。
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/timing]
+    paths: [.github/workflows/us2.yml]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: us2
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: 分支檢查
+        run: '[ "$GITHUB_REF" = "refs/heads/research/timing" ] || { echo "::error::只能在 research/timing 分支執行"; exit 1; }'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pandas==2.2.3 numpy==2.2.6 tabulate yfinance==0.2.66 lxml requests
+      - run: python research/timing/us1.py demo > /dev/null
+      - name: 美股分組
+        run: |
+          python research/timing/us1.py run2 out
+          cat out/us2_groups.md >> "$GITHUB_STEP_SUMMARY"
+      - name: 結果寫回分支
+        run: |
+          cp out/us2_groups.md research/timing/results/
+          echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID commit=$GITHUB_SHA" >> research/timing/results/us2_groups.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add research/timing/results/us2_groups.md
+          git commit -m "US v2 結果（run $GITHUB_RUN_ID）"
+          git pull --rebase origin research/timing && git push origin HEAD:research/timing
