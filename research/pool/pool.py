@@ -5,6 +5,7 @@ python research/pool/pool.py OUT      # 用 yfinance 還原日 K（auto_adjust�
 出場規則的成交假設：盤中碰到停損價即以停損價成交，開盤已跌破則以開盤價成交；同一天同時碰到停損與停利，算停損。
 未處理漲跌停鎖死賣不掉的情況，實際結果會比這裡差一些。樣本彼此重疊，不是獨立交易。
 """
+import os
 import sys
 from pathlib import Path
 
@@ -100,7 +101,7 @@ def fetch(pool):
 if __name__ == "__main__":
     out = Path(sys.argv[1])
     out.mkdir(parents=True, exist_ok=True)
-    pool = [x.split()[0] for x in (Path(__file__).parent / "pool.txt").read_text().splitlines() if x.strip() and not x.startswith("#")]
+    pool = [x.split()[0] for x in Path(os.environ.get("POOL", "~/private/pool.txt")).expanduser().read_text().splitlines() if x.strip() and not x.startswith("#")]
     data, log = fetch(pool)
     R = evaluate(data)
     R.to_parquet(out / "pool_trades.parquet", index=False)
